@@ -1,0 +1,164 @@
+﻿@page "/addimage2/{postId:int}"
+
+
+@using BlazorSQLiteV2.Data
+@using Microsoft.Extensions.Logging;
+@inject IWebHostEnvironment Environment
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment env
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+
+<h3>Upload Your Picture</h3>
+
+@if (isLoading)
+    {
+        <p>Uploading...</p>
+    }
+    else
+    {
+        <p>
+            <label>
+                Upload up to @maxAllowedFiles file(s), with each up to @maxFileSize bytes:
+                <br />
+                <InputFile OnChange="@UpLoadImages" multiple accept=".jpg,.jpeg,.png" />
+            </label>
+        </p>
+    }
+
+
+
+
+@code {
+    [Parameter]
+    public int postId{ get; set; }
+    //Class Variables
+    public static int nextPostId = 0;
+    private PostPicture _postPictureToCreate = new PostPicture();
+    private Post _postToUpdate = null;
+    //File Variables
+    private List<IBrowserFile> loadedFiles = new();
+    private long maxFileSize = 1024 * 15;
+    private int maxAllowedFiles = 1;
+    private string randomizedFileName = "";
+    //GUI Variables
+    private bool isLoading;
+    private string extensionname = "default";
+    private List<string> imagefiletypes = new List<string>() { ".png", ".jpg", ".jpeg" };
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        //get the next Id number
+        nextPostId = GetNextId();
+        //set _postToUpdate to the post this image relates to
+        using var context = new BlazorSQLiteDbContext();
+        _postToUpdate = await context.Posts.FindAsync(postId);
+    }
+
+
+    private int GetNextId()
+    {
+        //Check the database for the current ID number and add 1 to it before returning
+        using var context = new BlazorSQLiteDbContext();
+        int maxPostPictureId = (int)context.PostPictures.Max(p => p.PostPictureId);
+        return maxPostPictureId + 1;
+    }
+
+    //InputFile Chnage event
+    private async Task UpLoadImages(InputFileChangeEventArgs e)
+    {
+        isLoading = true;
+        loadedFiles.Clear();
+
+        foreach (var file in e.GetMultipleFiles(maxAllowedFiles)) //this is default to 1 at the moment
+        {
+            try
+            {
+                loadedFiles.Add(file);
+
+                //get the upload file extension.
+                extensionname = Path.GetExtension(file.Name);
+                
+                //generate a random number used for the file name when saved on the server
+                Random rnd = new Random();
+                int num = rnd.Next();
+                randomizedFileName = num + extensionname;
+
+
+                if (imagefiletypes.Contains(extensionname))
+                {
+                    //resize the image and create the thumbnails
+                    var resizedFile = await file.RequestImageFileAsync(file.ContentType, 640, 480); // resize the image file
+                    var buf = new byte[resizedFile.Size]; // allocate a buffer to fill with the file's data
+
+                    var stream = resizedFile.OpenReadStream();
+                    using (stream)
+                    {
+                        await stream.ReadAsync(buf); // copy the stream to the buffer
+                    }
+                    var base64data = "data:image/png;base64," + Convert.ToBase64String(buf); // convert to a base64 string!!
+                    //save to the server
+                    stream = resizedFile.OpenReadStream();
+                    var path = $"{env.WebRootPath}\\PostImages\\{randomizedFileName}";
+                    FileStream fs = File.Create(path);
+                    await stream.CopyToAsync(fs);
+                    stream.Close();
+                    fs.Close();
+
+                    //Update picture object with the ID,name and path
+                    _postPictureToCreate.PostPictureId = nextPostId;
+                    _postPictureToCreate.PostPictureName = randomizedFileName;
+                    _postPictureToCreate.PostPictureUrl = path;
+                    //Call the insert command, inserts the above object into the PostPictures table
+                    await CreatePostPictureAsync();
+
+                    //Update the Post table to include the PostPictureID for this post
+                    await UpdatePostAsync();
+
+                    //Send alert to user indicating the file is uploaded
+                    await JSRuntime.InvokeVoidAsync("alert", "File has been uploaded");
+
+                }
+
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", ex);
+            }
+        }
+        isLoading = false;
+    }
+
+
+    private async Task CreatePostPictureAsync()
+    {
+        using var context = new BlazorSQLiteDbContext();
+        await context.PostPictures.AddAsync(_postPictureToCreate);
+
+        if (await context.SaveChangesAsync() == 0)
+        {
+            string errorMessage = "Error : Failed to create post.";
+            await JSRuntime.InvokeVoidAsync("alert", errorMessage);            
+        }
+    }
+
+    private async Task UpdatePostAsync()
+    {
+        _postToUpdate.PostDate = DateOnly.FromDateTime(DateTime.Now);  //Gets the current date of the edit
+        _postToUpdate.PostPictureId = nextPostId;
+        using var context = new BlazorSQLiteDbContext();
+        context.Posts.Update(_postToUpdate);
+        if (await context.SaveChangesAsync() > 0)
+        {
+            NavigationManager.NavigateTo("/");
+            //back to the index page with the list of existing and added post
+        }
+        else
+        {
+            string errorMessage = $"Error: Failed to update post \" {_postToUpdate} \"";
+            JSRuntime.InvokeVoidAsync("alert", errorMessage);
+        }
+    }
+}

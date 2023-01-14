@@ -1,0 +1,96 @@
+﻿
+
+
+@using BlazorSQLiteV2.Data
+@using Microsoft.EntityFrameworkCore
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+
+<br />
+<h2>Online Message Board</h2>
+<br />
+<a class="btn btn-primary" @onclick="(() => NewPost())">
+	Create New Post
+</a>
+<br />
+
+
+<table>
+	<thead>
+		<tr>
+			<th width="50">ID</th>
+			<th width="200">Title</th>
+			<th width="250">Message</th>
+			<th width="150">Date</th>
+			<th width="300">Image Name</th>
+			<th width="300">Image URL</th>
+			<th width="100">Functions</th>
+			<th width="100"></th>
+		</tr>
+	</thead>
+
+	@foreach(var posts in _posts)
+	{
+		<tbody>
+			<tr>
+				<td>@posts.PostId</td>
+				<td><a href="editpost/@posts.PostId">@posts.PostTitle</a> </td>
+				<td><a href="editpost/@posts.PostId">@posts.PostMessage</a></td>
+				<td>@posts.PostDate</td>
+				@if(posts.PostPicture != null)
+				{
+					<td>@posts.PostPicture.PostPictureName</td>
+					<td>Removed Long URL</td>
+				}
+				else
+				{
+					<td>No Image Found</td>
+					<td>No URL Found</td>
+				}
+				<td><a class="btn btn-primary" @onclick="(() => EditPost(posts.PostId))">Update</a></td>
+				<td><a class="btn btn-primary" @onclick="(() => DeletePostAsync(posts))">Delete</a></td>
+			</tr>
+		</tbody>
+	}
+
+</table>
+
+@code{
+	public List<Post>_posts = null;
+	public bool _loading = false;
+
+	protected override async Task OnInitializedAsync()
+	{
+		_loading = true;
+		using var context = new BlazorSQLiteDbContext();
+		_posts = await context.Posts.Include(p => p.PostPicture).ToListAsync();
+		_loading = false;
+	}
+
+	void NewPost()
+	{
+		NavigationManager.NavigateTo($"newpost",true); //Forceload parameter is default to false, use true to force the 'newpost' page to reload and get a new PostId number//
+	}
+
+	void EditPost(int id)
+	{
+		NavigationManager.NavigateTo($"editpost/{id}");
+	}
+
+	private async Task DeletePostAsync(Post _postToDelete)
+	{
+		using var context = new BlazorSQLiteDbContext();
+		context.Posts.Remove(_postToDelete); //Takes out the data from the database
+		if(await context.SaveChangesAsync() >0)
+		{
+			_posts.Remove(_postToDelete); //Removes the post from the current displayed list
+		}
+		else
+		{
+			string errorMessage = $"Error: Failed to remove post \" {_postToDelete} \"";
+			await JSRuntime.InvokeVoidAsync("alert", errorMessage);
+		}
+	}
+
+}

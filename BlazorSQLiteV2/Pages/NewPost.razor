@@ -1,0 +1,103 @@
+﻿@page "/newpost"
+@using BlazorSQLiteV2.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Web
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+
+<h3>Create New Post!</h3>
+
+<EditForm Model="_postToCreate" OnValidSubmit="CreatePostAsync">
+	<div class="form-group mb-3">
+		<label for="postTitle">Title</label>
+		<InputText @bind-Value="_postToCreate.PostTitle" class="form-control" id="postTitle"></InputText>
+	</div>
+
+	<div class="form-group mb-3">
+		<label for="postMessage">Message</label>
+		<InputText @bind-Value="_postToCreate.PostMessage" class="form-control" id="postMessage"></InputText>
+	</div>
+
+	<div>
+		<button class="btn btn-secondary" type="submit">
+			Create Post
+		</button>
+
+		<button @onclick="@(()=> NavigationManager.NavigateTo("/"))" class="btn btn-secondary">
+			Cancel
+		</button>
+		<br />
+		<br />
+		<button type="button" @onclick="(() => AddImage())" class="btn btn-secondary">
+			Add Image
+		</button>		
+	</div>
+
+</EditForm>
+
+
+@code {
+
+	//Variables required for NewPost.Razor
+	private static int nextPostId;
+	private bool isSaved = false;
+	private Post _postToCreate = new Post
+		{
+			PostId = nextPostId,
+			PostTitle = "Title",
+			PostMessage = "Message",
+			PostDate = DateOnly.FromDateTime(DateTime.Now),
+		};
+
+	protected override async Task OnInitializedAsync()
+	{
+		//get the next Id number
+		nextPostId = GetNextPostId();
+	}
+
+	private int GetNextPostId()
+	{
+		//Check the database for the current ID number and add 1 to it before returning
+		using var context = new BlazorSQLiteDbContext();
+		int maxPostId = (int)context.Posts.Max(p => p.PostId);
+		return maxPostId + 1;
+	}
+
+	private async Task CreatePostAsync()
+	{
+		using var context = new BlazorSQLiteDbContext();
+		await context.Posts.AddAsync(_postToCreate);
+
+		if(await context.SaveChangesAsync() > 0)
+		{
+			StateHasChanged();
+			NavigationManager.NavigateTo("/");
+		}
+		else
+		{
+			string errorMessage = "Error : Failed to create post.";
+			await JSRuntime.InvokeVoidAsync("alert", errorMessage);
+		}
+	}
+
+	private async Task AddImage()
+	{
+		//Save the post first, before allowing the user to save an image.
+		await CreatePostAsync();
+		NavigationManager.NavigateTo($"addimage/{nextPostId}");
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+}

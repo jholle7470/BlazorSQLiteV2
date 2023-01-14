@@ -1,0 +1,145 @@
+﻿@page "/addimage/{postId:int}"
+
+@using BlazorSQLiteV2.Data
+@using Microsoft.Extensions.Logging
+@using Microsoft.EntityFrameworkCore
+@inject IWebHostEnvironment Environment
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment env
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+
+<h3>Upload Your Picture</h3>
+
+@if(isLoading)
+{
+	<div class="spinner-border"></div>
+}
+else
+{
+	<p>
+		<label>
+			Upload up to @maxAllowedFiles file(s), with each up to @maxFileSize bytes:
+			<br />
+			<InputFile OnChange="@UpLoadImages" multiple
+				accept =".jpg, .jpeg, .png" />
+		</label>
+	</p>
+}
+
+
+@code{
+
+	[Parameter]
+	public int postId { get; set; }
+
+	//Class Variables
+	public static int nextPostId = 0;
+	private PostPicture _postPictureToCreate = new PostPicture();
+	private Post _postToCreate = null;
+
+	//File Variables
+	private List<IBrowserFile> loadedFiles = new();
+	private long maxFileSize = 3072 * 3072;
+	private int maxAllowedFiles = 1;
+	private string trustedFileNameForFileStorage = "";
+
+	//GUI Variables
+	private bool isLoading;
+	private string extensionname = "";
+	private List<string> imagefiletypes = new List<string>() { ".png, .jpg, .jpeg" };
+
+	protected override async Task OnInitializedAsync()
+	{
+		//Get the next Id number
+		nextPostId = GetNextId();
+		//Set _postToUpdate to the post this image relates to
+		using var context = new BlazorSQLiteDbContext();
+		_postToCreate = await context.Posts.FindAsync(postId);
+	}
+
+	private int GetNextId()
+	{
+		//Check the database for the current ID number and add 1 to it before returning
+		using var context = new BlazorSQLiteDbContext();
+		int maxPostPictureId = (int)context.PostPictures.Max(p => p.PostPictureId);
+		return maxPostPictureId + 1;
+	}
+
+	private async Task CreatePostPictureAsync()
+	{
+		using var context = new BlazorSQLiteDbContext();
+		await context.PostPictures.AddAsync(_postPictureToCreate);
+
+		if(await context.SaveChangesAsync() == 0)
+		{
+			string errorMessage = "Error : Failed to create post picture";
+			await JSRuntime.InvokeVoidAsync("alert", errorMessage);
+		}
+	}
+
+	private async Task UpdatePostAsync()
+	{
+		using var context = new BlazorSQLiteDbContext();
+		//update the post table with the key for the postPicture table
+		_postToCreate.PostPictureId = nextPostId;  
+		//Update the _post object with the current date
+		_postToCreate.PostDate = DateOnly.FromDateTime(DateTime.Now);
+
+		context.Posts.Update(_postToCreate);
+		if(await context.SaveChangesAsync() >0)
+		{
+			NavigationManager.NavigateTo("/");
+		}
+		else
+		{
+			string errorMessage = $"Error : Failed to update post \" {_postToCreate} \"";
+			await JSRuntime.InvokeVoidAsync("alert", errorMessage);
+		}
+	}
+
+	//InputFile Change Event
+	private async Task UpLoadImages(InputFileChangeEventArgs e)
+	{
+		isLoading = true;
+		loadedFiles.Clear();
+
+		foreach(var file in e.GetMultipleFiles(maxAllowedFiles)) //this is default to 1 now
+		{
+			try
+			{
+				loadedFiles.Add(file);
+
+				//get the upload file extension
+				extensionname = Path.GetExtension(file.Name);
+				trustedFileNameForFileStorage = Path.GetRandomFileName();
+				trustedFileNameForFileStorage = Path.ChangeExtension(trustedFileNameForFileStorage, extensionname);
+
+				Environment.EnvironmentName = "wwwroot";
+				var path = Path.Combine(Environment.ContentRootPath, Environment.EnvironmentName, "Post_Images_Uploaded", trustedFileNameForFileStorage);
+				await using FileStream fs = new(path, FileMode.Create);
+				await file.OpenReadStream(maxFileSize).CopyToAsync(fs);
+
+				//Update the picture object with the ID, Name and path
+				_postPictureToCreate.PostPictureId = nextPostId;
+				_postPictureToCreate.PostPictureName = trustedFileNameForFileStorage;
+				_postPictureToCreate.PostPictureUrl = path;
+
+				//Call the insert command
+				await CreatePostPictureAsync();
+
+				//Upate the post table
+				await UpdatePostAsync();
+
+				//Send an alert to the user (optional)
+				//await JSRuntime.InvokeVoidAsync("alert", "File has been uploaded");
+			}
+			catch(Exception ex)
+			{
+				await JSRuntime.InvokeVoidAsync("alert", ex.Message);
+			}
+		}
+		//Set the isLoading variable 
+		isLoading = false;
+	}
+}

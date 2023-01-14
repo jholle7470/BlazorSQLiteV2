@@ -1,0 +1,95 @@
+﻿@page "/editpost/{postId:int}"
+@using BlazorSQLiteV2.Data
+@using Microsoft.EntityFrameworkCore
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+
+<h3>Edit Your Post</h3>
+
+<EditForm Model="_postToUpdate" OnValidSubmit="UpdatePostAsync">
+	<div class="form-group mb-3">
+		<label for="postTitle">Title</label>
+		<InputText @bind-Value="_postToUpdate.PostTitle" class="form-control" id="postTitle"></InputText>
+	</div>
+
+	<div class="form-group mb-3">
+		<label for="postContent">Content</label>
+		<InputText @bind-Value="_postToUpdate.PostMessage" class="form-control" id="postMessage"></InputText>
+	</div>
+
+	<div class="form-group mb-3">
+		@if (_postPictureUpdate != null)
+		{
+			imgPathandName = "/post_images_uploaded/" + @_postPictureUpdate.PostPictureName;
+			<td><img src=@imgPathandName width="auto" height="250" /></td>
+		}
+
+	</div>
+
+	<button class="btn btn-primary" type="submit">
+		Update
+	</button>
+
+	<button @onclick="@(() =>NavigationManager.NavigateTo("/"))" class="btn btn-secondary" type="button">
+		Cancel
+	</button>
+	<br />
+	<br />
+	@if (_postPictureUpdate != null)
+	{
+		<button type="button" @onclick="@(()=>UpdatePicture())" class="btn btn-secondary">Change Picture</button>
+	}
+	else
+	{
+		<button type="button" @onclick="@(()=>UpdatePicture())" class="btn btn-secondary">Add Picture</button>
+	}
+
+
+
+</EditForm>
+
+
+@code {
+	[Parameter]
+	public int postId { get; set; }
+	private Post _postToUpdate = null;
+	public string imgPathandName = "";
+	private PostPicture _postPictureUpdate = null;
+	private int fromImage = 1;
+
+	protected override async Task OnInitializedAsync()
+	{
+		using var context = new BlazorSQLiteDbContext();
+		_postToUpdate = await context.Posts.FindAsync(postId);
+		_postPictureUpdate = await context.PostPictures.FindAsync(_postToUpdate.PostPictureId);
+	}
+
+	private async Task UpdatePostAsync()
+	{
+		_postToUpdate.PostDate = DateOnly.FromDateTime(DateTime.Now);  //Gets the current date of the edit
+
+		using var context = new BlazorSQLiteDbContext();
+		context.Posts.Update(_postToUpdate);
+		if(await context.SaveChangesAsync() > 0)
+		{
+			if (fromImage > 0)
+			{
+				NavigationManager.NavigateTo("/");
+			}
+		}
+		else
+		{
+			string errorMessage = $"Error: Failed to update post \" {_postToUpdate} \"";
+			JSRuntime.InvokeVoidAsync("alert", errorMessage);
+		}
+	}
+
+	void UpdatePicture()
+	{
+		fromImage = 0;  //set to 0 to allow updatePost to run without going back to the index
+		UpdatePostAsync();
+		NavigationManager.NavigateTo($"addimage/{_postToUpdate.PostId}");
+	}
+
+}
